@@ -51,15 +51,13 @@ model_choice = st.sidebar.selectbox(
 st.subheader("📂 Upload Dataset")
 file = st.file_uploader("Upload CSV")
 
-# -------------------------------
-# DEFAULT PLACEHOLDERS (IMPORTANT)
-# -------------------------------
+# Placeholders
 model = None
 vectorizer = None
 
 if file:
     # -------------------------------
-    # LOAD DATASET (NO HEADER FIX)
+    # LOAD DATASET
     # -------------------------------
     df = pd.read_csv(file, header=None, encoding='latin-1')
     df.columns = ["category", "rating", "label", "review_text"]
@@ -74,6 +72,20 @@ if file:
     # CLEAN TEXT
     # -------------------------------
     df['cleaned'] = df['review_text'].apply(clean_text)
+
+    # -------------------------------
+    # FEATURE: REVIEW LENGTH
+    # -------------------------------
+    df['length'] = df['review_text'].apply(len)
+
+    # -------------------------------
+    # IQR OUTLIER REMOVAL
+    # -------------------------------
+    Q1 = df['length'].quantile(0.25)
+    Q3 = df['length'].quantile(0.75)
+    IQR = Q3 - Q1
+
+    df = df[(df['length'] >= Q1 - 1.5*IQR) & (df['length'] <= Q3 + 1.5*IQR)]
 
     # -------------------------------
     # BALANCE DATASET
@@ -117,12 +129,12 @@ if file:
         model = RandomForestClassifier(class_weight='balanced')
 
     # -------------------------------
-    # TABS UI
+    # TABS
     # -------------------------------
     tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🤖 Model", "📝 Predict"])
 
     # -------------------------------
-    # TAB 1 - DASHBOARD
+    # TAB 1: DASHBOARD
     # -------------------------------
     with tab1:
         st.subheader("📊 Data Overview")
@@ -134,10 +146,10 @@ if file:
             st.bar_chart(df['label'].value_counts())
 
         with col2:
-            df['length'] = df['review_text'].apply(len)
-            st.write("Review Length")
+            st.write("Review Length Distribution")
             st.bar_chart(df['length'])
 
+        # WordCloud
         st.subheader("☁️ Word Cloud")
         text_data = " ".join(df['cleaned'])
         wordcloud = WordCloud(width=800, height=400).generate(text_data)
@@ -145,8 +157,18 @@ if file:
         plt.axis("off")
         st.pyplot(plt)
 
+        # Correlation Heatmap
+        st.subheader("📊 Correlation Heatmap")
+
+        numeric_df = df[['rating', 'length', 'label']]
+        corr = numeric_df.corr()
+
+        fig, ax = plt.subplots()
+        sns.heatmap(corr, annot=True, cmap='coolwarm')
+        st.pyplot(fig)
+
     # -------------------------------
-    # TAB 2 - MODEL
+    # TAB 2: MODEL
     # -------------------------------
     with tab2:
         st.subheader("🤖 Model Performance")
@@ -167,6 +189,7 @@ if file:
         c3.metric("Recall", f"{rec:.2f}")
         c4.metric("F1 Score", f"{f1:.2f}")
 
+        # Confusion Matrix
         st.subheader("📊 Confusion Matrix")
         cm = confusion_matrix(y_test, y_pred)
 
@@ -175,7 +198,7 @@ if file:
         st.pyplot(fig)
 
 # -------------------------------
-# 🔥 MANUAL PREDICTOR (ALWAYS VISIBLE)
+# MANUAL PREDICTOR (ALWAYS VISIBLE)
 # -------------------------------
 st.subheader("📝 Test Your Review")
 
@@ -192,7 +215,6 @@ if st.button("🔍 Analyze Review"):
             vec = vectorizer.transform([cleaned])
             pred = model.predict(vec)[0]
 
-            # Probability animation
             if hasattr(model, "predict_proba"):
                 prob = model.predict_proba(vec)[0][1]
             else:
