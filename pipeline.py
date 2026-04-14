@@ -132,13 +132,13 @@ if file:
     st.subheader("📈 Performance Metrics")
 
     try:
-    acc = accuracy_score(y_test, y_pred)
-    prec = precision_score(y_test, y_pred, zero_division=0)
-    rec = recall_score(y_test, y_pred, zero_division=0)
-    f1 = f1_score(y_test, y_pred, zero_division=0)
+        acc = accuracy_score(y_test, y_pred)
+        prec = precision_score(y_test, y_pred, zero_division=0)
+        rec = recall_score(y_test, y_pred, zero_division=0)
+        f1 = f1_score(y_test, y_pred, zero_division=0)
     except:
-    st.error("⚠️ Error in metrics calculation. Check dataset balance.")
-    acc, prec, rec, f1 = 0, 0, 0, 0
+        st.error("⚠️ Error in metrics calculation. Check dataset balance.")
+        acc, prec, rec, f1 = 0, 0, 0, 0
 
     col1, col2, col3, col4 = st.columns(4)
 
