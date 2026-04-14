@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import re
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -52,9 +51,15 @@ model_choice = st.sidebar.selectbox(
 st.subheader("📂 Upload Dataset")
 file = st.file_uploader("Upload CSV")
 
+# -------------------------------
+# DEFAULT PLACEHOLDERS (IMPORTANT)
+# -------------------------------
+model = None
+vectorizer = None
+
 if file:
     # -------------------------------
-    # LOAD DATASET (FIXED FORMAT)
+    # LOAD DATASET (NO HEADER FIX)
     # -------------------------------
     df = pd.read_csv(file, header=None, encoding='latin-1')
     df.columns = ["category", "rating", "label", "review_text"]
@@ -133,7 +138,6 @@ if file:
             st.write("Review Length")
             st.bar_chart(df['length'])
 
-        # WordCloud
         st.subheader("☁️ Word Cloud")
         text_data = " ".join(df['cleaned'])
         wordcloud = WordCloud(width=800, height=400).generate(text_data)
@@ -163,7 +167,6 @@ if file:
         c3.metric("Recall", f"{rec:.2f}")
         c4.metric("F1 Score", f"{f1:.2f}")
 
-        # Confusion Matrix
         st.subheader("📊 Confusion Matrix")
         cm = confusion_matrix(y_test, y_pred)
 
@@ -171,32 +174,34 @@ if file:
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
         st.pyplot(fig)
 
-    # -------------------------------
-    # TAB 3 - PREDICT
-    # -------------------------------
-    with tab3:
-        st.subheader("📝 Test Your Review")
+# -------------------------------
+# 🔥 MANUAL PREDICTOR (ALWAYS VISIBLE)
+# -------------------------------
+st.subheader("📝 Test Your Review")
 
-        user_input = st.text_area("Enter product review:")
+user_input = st.text_area("Enter product review:")
 
-        if st.button("🔍 Analyze Review"):
-            if user_input.strip() == "":
-                st.warning("⚠️ Please enter a review")
+if st.button("🔍 Analyze Review"):
+    if model is None or vectorizer is None:
+        st.warning("⚠️ Please upload dataset first")
+    elif user_input.strip() == "":
+        st.warning("⚠️ Please enter a review")
+    else:
+        with st.spinner("Analyzing review..."):
+            cleaned = clean_text(user_input)
+            vec = vectorizer.transform([cleaned])
+            pred = model.predict(vec)[0]
+
+            # Probability animation
+            if hasattr(model, "predict_proba"):
+                prob = model.predict_proba(vec)[0][1]
             else:
-                with st.spinner("Analyzing review..."):
-                    cleaned = clean_text(user_input)
-                    vec = vectorizer.transform([cleaned])
-                    pred = model.predict(vec)[0]
+                prob = 0.5
 
-                    if hasattr(model, "predict_proba"):
-                        prob = model.predict_proba(vec)[0][1]
-                    else:
-                        prob = 0.5
+            st.progress(prob)
+            st.write(f"Fake Probability: {prob*100:.2f}%")
 
-                    st.progress(prob)
-                    st.write(f"Fake Probability: {prob*100:.2f}%")
-
-                    if pred == 1:
-                        st.markdown("## 🚨 Fake Review Detected")
-                    else:
-                        st.markdown("## ✅ Genuine Review")
+            if pred == 1:
+                st.markdown("## 🚨 Fake Review Detected")
+            else:
+                st.markdown("## ✅ Genuine Review")
