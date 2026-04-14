@@ -13,7 +13,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 from sklearn.utils import resample
 from wordcloud import WordCloud
-from textblob import TextBlob
 
 # -------------------------------
 # CLEAN TEXT
@@ -25,9 +24,19 @@ def clean_text(text):
     return text
 
 # -------------------------------
-# UI
+# UI CONFIG
 # -------------------------------
 st.set_page_config(page_title="Fake Review Detection", layout="wide")
+
+st.markdown("""
+<style>
+.big-font {
+    font-size:25px !important;
+    font-weight: bold;
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("🛒 Fake Product Review Detection System")
 
 # Sidebar
@@ -45,7 +54,7 @@ file = st.file_uploader("Upload CSV")
 
 if file:
     # -------------------------------
-    # FIX DATASET FORMAT
+    # LOAD DATASET (FIXED FORMAT)
     # -------------------------------
     df = pd.read_csv(file, header=None, encoding='latin-1')
     df.columns = ["category", "rating", "label", "review_text"]
@@ -60,12 +69,6 @@ if file:
     # CLEAN TEXT
     # -------------------------------
     df['cleaned'] = df['review_text'].apply(clean_text)
-
-    # -------------------------------
-    # DATA DISTRIBUTION
-    # -------------------------------
-    st.subheader("📊 Dataset Distribution")
-    st.write(df['label'].value_counts())
 
     # -------------------------------
     # BALANCE DATASET
@@ -83,28 +86,6 @@ if file:
         df = pd.concat([df_majority, df_minority_upsampled])
 
     # -------------------------------
-    # EDA
-    # -------------------------------
-    st.subheader("📊 Exploratory Data Analysis")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.bar_chart(df['label'].value_counts())
-
-    with col2:
-        df['length'] = df['review_text'].apply(len)
-        st.bar_chart(df['length'])
-
-    # WordCloud
-    st.subheader("☁️ Word Cloud")
-    text_data = " ".join(df['cleaned'])
-    wordcloud = WordCloud(width=800, height=400).generate(text_data)
-    plt.imshow(wordcloud)
-    plt.axis("off")
-    st.pyplot(plt)
-
-    # -------------------------------
     # FEATURE ENGINEERING
     # -------------------------------
     vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1,2))
@@ -119,7 +100,7 @@ if file:
     )
 
     # -------------------------------
-    # MODEL TRAINING
+    # MODEL
     # -------------------------------
     if model_choice == "Logistic Regression":
         model = LogisticRegression(class_weight='balanced', max_iter=1000)
@@ -130,95 +111,92 @@ if file:
     else:
         model = RandomForestClassifier(class_weight='balanced')
 
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
+    # -------------------------------
+    # TABS UI
+    # -------------------------------
+    tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🤖 Model", "📝 Predict"])
 
     # -------------------------------
-    # METRICS
+    # TAB 1 - DASHBOARD
     # -------------------------------
-    st.subheader("📈 Performance Metrics")
+    with tab1:
+        st.subheader("📊 Data Overview")
 
-    acc = accuracy_score(y_test, y_pred)
-    prec = precision_score(y_test, y_pred, zero_division=0)
-    rec = recall_score(y_test, y_pred, zero_division=0)
-    f1 = f1_score(y_test, y_pred, zero_division=0)
+        col1, col2 = st.columns(2)
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Accuracy", f"{acc:.2f}")
-    c2.metric("Precision", f"{prec:.2f}")
-    c3.metric("Recall", f"{rec:.2f}")
-    c4.metric("F1 Score", f"{f1:.2f}")
+        with col1:
+            st.write("Label Distribution")
+            st.bar_chart(df['label'].value_counts())
 
-    # -------------------------------
-    # CONFUSION MATRIX
-    # -------------------------------
-    st.subheader("📊 Confusion Matrix")
+        with col2:
+            df['length'] = df['review_text'].apply(len)
+            st.write("Review Length")
+            st.bar_chart(df['length'])
 
-    cm = confusion_matrix(y_test, y_pred)
-    fig, ax = plt.subplots()
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-    st.pyplot(fig)
-
-    # -------------------------------
-    # MODEL COMPARISON
-    # -------------------------------
-    st.subheader("⚖️ Model Comparison")
-
-    models = {
-        "Logistic": LogisticRegression(max_iter=1000),
-        "SVM": SVC(),
-        "RandomForest": RandomForestClassifier()
-    }
-
-    for name, m in models.items():
-        m.fit(X_train, y_train)
-        pred = m.predict(X_test)
-        st.write(f"{name} Accuracy: {accuracy_score(y_test, pred):.2f}")
+        # WordCloud
+        st.subheader("☁️ Word Cloud")
+        text_data = " ".join(df['cleaned'])
+        wordcloud = WordCloud(width=800, height=400).generate(text_data)
+        plt.imshow(wordcloud)
+        plt.axis("off")
+        st.pyplot(plt)
 
     # -------------------------------
-    # DOWNLOAD RESULTS
+    # TAB 2 - MODEL
     # -------------------------------
-    result_df = pd.DataFrame({
-        "Actual": y_test,
-        "Predicted": y_pred
-    })
+    with tab2:
+        st.subheader("🤖 Model Performance")
 
-    csv = result_df.to_csv(index=False)
-    st.download_button("📥 Download Results", csv, "results.csv")
+        with st.spinner("Training model..."):
+            model.fit(X_train, y_train)
+
+        y_pred = model.predict(X_test)
+
+        acc = accuracy_score(y_test, y_pred)
+        prec = precision_score(y_test, y_pred, zero_division=0)
+        rec = recall_score(y_test, y_pred, zero_division=0)
+        f1 = f1_score(y_test, y_pred, zero_division=0)
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Accuracy", f"{acc:.2f}")
+        c2.metric("Precision", f"{prec:.2f}")
+        c3.metric("Recall", f"{rec:.2f}")
+        c4.metric("F1 Score", f"{f1:.2f}")
+
+        # Confusion Matrix
+        st.subheader("📊 Confusion Matrix")
+        cm = confusion_matrix(y_test, y_pred)
+
+        fig, ax = plt.subplots()
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+        st.pyplot(fig)
 
     # -------------------------------
-    # MANUAL REVIEW TEST
+    # TAB 3 - PREDICT
     # -------------------------------
-    st.subheader("📝 Test Your Own Review")
+    with tab3:
+        st.subheader("📝 Test Your Review")
 
-    user_input = st.text_area("Enter review")
+        user_input = st.text_area("Enter product review:")
 
-    if st.button("Predict"):
-        cleaned = clean_text(user_input)
-        vec = vectorizer.transform([cleaned])
-        pred = model.predict(vec)[0]
+        if st.button("🔍 Analyze Review"):
+            if user_input.strip() == "":
+                st.warning("⚠️ Please enter a review")
+            else:
+                with st.spinner("Analyzing review..."):
+                    cleaned = clean_text(user_input)
+                    vec = vectorizer.transform([cleaned])
+                    pred = model.predict(vec)[0]
 
-        # Probability
-        if hasattr(model, "predict_proba"):
-            prob = model.predict_proba(vec)[0][1]
-        else:
-            prob = 0.5
+                    if hasattr(model, "predict_proba"):
+                        prob = model.predict_proba(vec)[0][1]
+                    else:
+                        prob = 0.5
 
-        st.progress(prob)
-        st.write(f"Fake Probability: {prob*100:.2f}%")
+                    st.progress(prob)
+                    st.write(f"Fake Probability: {prob*100:.2f}%")
 
-        # Sentiment
-        sentiment = TextBlob(user_input).sentiment.polarity
-
-        if sentiment > 0:
-            st.write("😊 Positive Review")
-        elif sentiment < 0:
-            st.write("😡 Negative Review")
-        else:
-            st.write("😐 Neutral Review")
-
-        # Result
-        if pred == 1:
-            st.markdown("### 🚨 **Fake Review Detected**")
-        else:
-            st.markdown("### ✅ **Genuine Review**")
+                    if pred == 1:
+                        st.markdown("## 🚨 Fake Review Detected")
+                    else:
+                        st.markdown("## ✅ Genuine Review")
