@@ -12,25 +12,26 @@ from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
+from sklearn.utils import resample
 from wordcloud import WordCloud
 
 # -------------------------------
 # TEXT CLEANING FUNCTION
 # -------------------------------
 def clean_text(text):
-    text = text.lower()
+    text = str(text).lower()
     text = re.sub(r'[^a-zA-Z]', ' ', text)
     text = re.sub(r'\s+', ' ', text)
     return text
 
 # -------------------------------
-# APP TITLE
+# APP CONFIG
 # -------------------------------
 st.set_page_config(page_title="Fake Review Detection", layout="wide")
 st.title("🛒 Fake Product Review Detection System")
 
 # -------------------------------
-# SIDEBAR OPTIONS
+# SIDEBAR
 # -------------------------------
 st.sidebar.header("⚙️ Settings")
 
@@ -49,13 +50,17 @@ st.subheader("📂 Upload Dataset")
 file = st.file_uploader("Upload CSV file (must contain 'review_text' and 'label')")
 
 if file:
-    df = pd.read_csv(file, encoding='latin-1')
+    # SAFE READ (fix encoding error)
+    try:
+        df = pd.read_csv(file)
+    except:
+        df = pd.read_csv(file, encoding='latin-1')
 
     st.write("### Dataset Preview")
     st.dataframe(df.head())
 
     # -------------------------------
-    # DATA CLEANING
+    # CLEANING
     # -------------------------------
     df.dropna(inplace=True)
     df.drop_duplicates(inplace=True)
@@ -63,7 +68,28 @@ if file:
     df['cleaned'] = df['review_text'].apply(clean_text)
 
     # -------------------------------
-    # EDA SECTION
+    # SHOW DATA DISTRIBUTION
+    # -------------------------------
+    st.subheader("📊 Dataset Distribution")
+    st.write(df['label'].value_counts())
+
+    # -------------------------------
+    # BALANCE DATASET
+    # -------------------------------
+    df_majority = df[df.label == 0]
+    df_minority = df[df.label == 1]
+
+    if len(df_minority) > 0:
+        df_minority_upsampled = resample(
+            df_minority,
+            replace=True,
+            n_samples=len(df_majority),
+            random_state=42
+        )
+        df = pd.concat([df_majority, df_minority_upsampled])
+
+    # -------------------------------
+    # EDA
     # -------------------------------
     st.subheader("📊 Exploratory Data Analysis")
 
@@ -74,8 +100,8 @@ if file:
         st.bar_chart(df['label'].value_counts())
 
     with col2:
-        st.write("Review Length Distribution")
         df['length'] = df['review_text'].apply(len)
+        st.write("Review Length Distribution")
         st.bar_chart(df['length'])
 
     # WORD CLOUD
@@ -88,11 +114,11 @@ if file:
     st.pyplot(plt)
 
     # -------------------------------
-    # FEATURE EXTRACTION
+    # FEATURE ENGINEERING
     # -------------------------------
-    st.subheader("🔧 Feature Engineering (TF-IDF)")
+    st.subheader("🔧 Feature Engineering")
 
-    vectorizer = TfidfVectorizer(max_features=5000)
+    vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1,2))
     X = vectorizer.fit_transform(df['cleaned'])
     y = df['label']
 
@@ -102,42 +128,40 @@ if file:
     # TRAIN TEST SPLIT
     # -------------------------------
     X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
+
     # -------------------------------
     # MODEL SELECTION
     # -------------------------------
     st.subheader("🤖 Model Training")
 
     if model_choice == "Logistic Regression":
-        model = LogisticRegression()
+        model = LogisticRegression(class_weight='balanced', max_iter=1000)
 
     elif model_choice == "SVM":
-        model = SVC()
+        model = SVC(class_weight='balanced')
 
     else:
-        model = RandomForestClassifier()
+        model = RandomForestClassifier(class_weight='balanced')
 
     model.fit(X_train, y_train)
 
-    # -------------------------------
-    # PREDICTION
-    # -------------------------------
     y_pred = model.predict(X_test)
+
+    # DEBUG
+    st.write("y_test distribution:", pd.Series(y_test).value_counts())
+    st.write("y_pred distribution:", pd.Series(y_pred).value_counts())
 
     # -------------------------------
     # METRICS
     # -------------------------------
     st.subheader("📈 Performance Metrics")
 
-    try:
-        acc = accuracy_score(y_test, y_pred)
-        prec = precision_score(y_test, y_pred, zero_division=0)
-        rec = recall_score(y_test, y_pred, zero_division=0)
-        f1 = f1_score(y_test, y_pred, zero_division=0)
-    except:
-        st.error("⚠️ Error in metrics calculation. Check dataset balance.")
-        acc, prec, rec, f1 = 0, 0, 0, 0
+    acc = accuracy_score(y_test, y_pred)
+    prec = precision_score(y_test, y_pred, zero_division=0)
+    rec = recall_score(y_test, y_pred, zero_division=0)
+    f1 = f1_score(y_test, y_pred, zero_division=0)
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -146,7 +170,9 @@ if file:
     col3.metric("Recall", f"{rec:.2f}")
     col4.metric("F1 Score", f"{f1:.2f}")
 
+    # -------------------------------
     # CONFUSION MATRIX
+    # -------------------------------
     st.subheader("📊 Confusion Matrix")
 
     cm = confusion_matrix(y_test, y_pred)
@@ -178,7 +204,7 @@ if file:
         st.write("Best Score:", grid.best_score_)
 
     # -------------------------------
-    # MANUAL REVIEW CHECK
+    # MANUAL TEST
     # -------------------------------
     st.subheader("📝 Test Your Own Review")
 
@@ -188,6 +214,11 @@ if file:
         cleaned = clean_text(user_input)
         vec = vectorizer.transform([cleaned])
         pred = model.predict(vec)[0]
+
+        if pred == 1:
+            st.error("🚨 Fake Review Detected")
+        else:
+            st.success("✅ Genuine Review")
 
         if pred == 1:
             st.error("🚨 Fake Review Detected")
