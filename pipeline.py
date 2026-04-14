@@ -49,7 +49,7 @@ st.subheader("📂 Upload Dataset")
 file = st.file_uploader("Upload CSV file (must contain 'review_text' and 'label')")
 
 if file:
-    df = pd.read_csv(file)
+    df = pd.read_csv(file, encoding='latin-1')
 
     st.write("### Dataset Preview")
     st.dataframe(df.head())
