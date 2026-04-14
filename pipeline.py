@@ -5,7 +5,7 @@ import re
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
@@ -31,51 +31,32 @@ st.title("🛒 Fake Product Review Detection System")
 
 # Sidebar
 st.sidebar.header("⚙️ Settings")
-model_choice = st.sidebar.selectbox("Choose Model", ["Logistic Regression", "SVM", "Random Forest"])
-k_fold = st.sidebar.slider("K-Fold Value", 2, 10, 5)
+model_choice = st.sidebar.selectbox(
+    "Choose Model",
+    ["Logistic Regression", "SVM", "Random Forest"]
+)
 
 # Upload
 st.subheader("📂 Upload Dataset")
 file = st.file_uploader("Upload CSV")
 
 if file:
-    # Read safely
-    try:
-        df = pd.read_csv(file)
-    except:
-        df = pd.read_csv(file, encoding='latin-1')
-
-    st.write("### Raw Dataset")
-    st.dataframe(df.head())
-
     # -------------------------------
-    # AUTO DETECT COLUMNS
+    # FIXED DATA LOADING (NO HEADER)
     # -------------------------------
-    st.write("Columns detected:", df.columns)
+    df = pd.read_csv(file, header=None, encoding='latin-1')
 
-    # Try to find text column (longest text column)
-    text_col = df.columns[-1]
+    # Assign correct columns
+    df.columns = ["category", "rating", "label", "review_text"]
 
-    # Try to find label column
-    label_col = df.columns[2] if len(df.columns) > 2 else df.columns[1]
+    # Convert labels
+    df['label'] = df['label'].map({"OR": 0, "CG": 1})
 
-    df = df.rename(columns={
-        text_col: "review_text",
-        label_col: "label"
-    })
-
-    # -------------------------------
-    # FIX LABELS
-    # -------------------------------
-    if df['label'].dtype == object:
-        df['label'] = df['label'].map({
-            "OR": 0,
-            "CG": 1,
-            "Fake": 1,
-            "Genuine": 0
-        })
-
+    # Drop nulls
     df.dropna(inplace=True)
+
+    st.write("### Dataset Preview")
+    st.dataframe(df.head())
 
     # -------------------------------
     # CLEAN TEXT
@@ -83,7 +64,7 @@ if file:
     df['cleaned'] = df['review_text'].apply(clean_text)
 
     # -------------------------------
-    # SHOW DISTRIBUTION
+    # DATA DISTRIBUTION
     # -------------------------------
     st.subheader("📊 Dataset Distribution")
     st.write(df['label'].value_counts())
@@ -91,18 +72,17 @@ if file:
     # -------------------------------
     # BALANCE DATASET
     # -------------------------------
-    if df['label'].nunique() == 2:
-        df_majority = df[df.label == 0]
-        df_minority = df[df.label == 1]
+    df_majority = df[df.label == 0]
+    df_minority = df[df.label == 1]
 
-        if len(df_minority) > 0:
-            df_minority_upsampled = resample(
-                df_minority,
-                replace=True,
-                n_samples=len(df_majority),
-                random_state=42
-            )
-            df = pd.concat([df_majority, df_minority_upsampled])
+    if len(df_minority) > 0:
+        df_minority_upsampled = resample(
+            df_minority,
+            replace=True,
+            n_samples=len(df_majority),
+            random_state=42
+        )
+        df = pd.concat([df_majority, df_minority_upsampled])
 
     # -------------------------------
     # EDA
@@ -112,10 +92,12 @@ if file:
     col1, col2 = st.columns(2)
 
     with col1:
+        st.write("Label Distribution")
         st.bar_chart(df['label'].value_counts())
 
     with col2:
         df['length'] = df['review_text'].apply(len)
+        st.write("Review Length Distribution")
         st.bar_chart(df['length'])
 
     # WordCloud
@@ -134,7 +116,7 @@ if file:
     y = df['label']
 
     # -------------------------------
-    # SPLIT
+    # TRAIN TEST SPLIT
     # -------------------------------
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
@@ -155,13 +137,10 @@ if file:
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
 
-    # Debug
-    st.write("y_pred distribution:", pd.Series(y_pred).value_counts())
-
     # -------------------------------
     # METRICS
     # -------------------------------
-    st.subheader("📈 Performance")
+    st.subheader("📈 Performance Metrics")
 
     acc = accuracy_score(y_test, y_pred)
     prec = precision_score(y_test, y_pred, zero_division=0)
@@ -178,8 +157,8 @@ if file:
     # CONFUSION MATRIX
     # -------------------------------
     st.subheader("📊 Confusion Matrix")
-    cm = confusion_matrix(y_test, y_pred)
 
+    cm = confusion_matrix(y_test, y_pred)
     fig, ax = plt.subplots()
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
     st.pyplot(fig)
@@ -187,7 +166,7 @@ if file:
     # -------------------------------
     # MANUAL TEST
     # -------------------------------
-    st.subheader("📝 Test Review")
+    st.subheader("📝 Test Your Own Review")
 
     user_input = st.text_area("Enter review")
 
@@ -197,6 +176,6 @@ if file:
         pred = model.predict(vec)[0]
 
         if pred == 1:
-            st.error("🚨 Fake Review")
+            st.error("🚨 Fake Review Detected")
         else:
             st.success("✅ Genuine Review")
