@@ -50,7 +50,7 @@ if file:
     df.columns = [c.lower().strip() for c in df.columns]
 
     if 'review_text' not in df.columns or 'label' not in df.columns:
-        st.error("❌ Dataset must contain 'review_text' and 'label' columns")
+        st.error("❌ Dataset must contain 'review_text' and 'label'")
         st.stop()
 
     df.dropna(subset=['review_text'], inplace=True)
@@ -78,15 +78,17 @@ if file:
         keywords = ["best ever", "life changing", "must buy", "100%", "amazing amazing"]
         df['exaggeration'] = df['review_text'].apply(lambda x: any(k in str(x).lower() for k in keywords))
 
+    df['exaggeration'] = df['exaggeration'].astype(float)
+
     st.write("### Dataset Preview")
     st.dataframe(df.head())
 
     vectorizer = TfidfVectorizer(max_features=max_features, ngram_range=(1,2))
     text_features = vectorizer.fit_transform(df['cleaned'])
 
-    extra_features = df[['word_count', 'exclamation_count', 'caps_ratio', 'exaggeration']].values
-    X = hstack([text_features, extra_features])
+    extra_features = df[['word_count', 'exclamation_count', 'caps_ratio', 'exaggeration']].astype(float).values
 
+    X = hstack([text_features, extra_features])
     y = df['label']
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -105,10 +107,8 @@ if file:
     tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🤖 Model", "📝 Predict"])
 
     with tab1:
-
         label_counts = df['label'].value_counts().reset_index()
         label_counts.columns = ['Label', 'Count']
-
         fig = px.bar(label_counts, x='Label', y='Count', color='Label', text='Count')
         st.plotly_chart(fig, use_container_width=True)
 
@@ -127,7 +127,6 @@ if file:
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-
         y_pred = model.predict(X_test)
 
         acc = accuracy_score(y_test, y_pred)
@@ -147,28 +146,25 @@ if file:
         st.pyplot(fig)
 
     with tab3:
-
         st.subheader("📝 Test Your Review")
 
         user_input = st.text_area("Enter product review:")
 
         if st.button("🔍 Analyze Review"):
-
             if user_input.strip() == "":
                 st.warning("⚠️ Please enter a review")
             else:
                 cleaned = clean_text(user_input)
-
                 text_vec = vectorizer.transform([cleaned])
 
-                wc = len(user_input.split())
-                ex = user_input.count('!')
-                caps = sum(1 for c in user_input if c.isupper())/(len(user_input)+1)
+                wc = float(len(user_input.split()))
+                ex = float(user_input.count('!'))
+                caps = float(sum(1 for c in user_input if c.isupper())/(len(user_input)+1))
+
                 keywords = ["best ever", "life changing", "must buy", "100%", "amazing amazing"]
-                exaggeration = int(any(k in user_input.lower() for k in keywords))
+                exaggeration = float(any(k in user_input.lower() for k in keywords))
 
                 extra = [[wc, ex, caps, exaggeration]]
-
                 final_vec = hstack([text_vec, extra])
 
                 pred = model.predict(final_vec)[0]
