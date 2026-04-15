@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 import re
+import time
+
+import plotly.express as px
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -29,21 +32,25 @@ st.set_page_config(page_title="Fake Review Detection", layout="wide")
 
 st.markdown("""
 <style>
-.big-font {
-    font-size:25px !important;
-    font-weight: bold;
-}
+.stApp { background-color: #0E1117; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🛒 Fake Product Review Detection System")
 
-# Sidebar
-st.sidebar.header("⚙️ Settings")
+# -------------------------------
+# SIDEBAR CONTROLS
+# -------------------------------
+st.sidebar.header("⚙️ Controls")
+
 model_choice = st.sidebar.selectbox(
     "Choose Model",
     ["Logistic Regression", "SVM", "Random Forest"]
 )
+
+max_features = st.sidebar.slider("TF-IDF Features", 1000, 10000, 5000)
+C_value = st.sidebar.slider("Logistic Regularization", 0.1, 5.0, 1.0)
+min_length = st.sidebar.slider("Min Review Length", 0, 500, 10)
 
 # -------------------------------
 # FILE UPLOAD
@@ -51,45 +58,30 @@ model_choice = st.sidebar.selectbox(
 st.subheader("📂 Upload Dataset")
 file = st.file_uploader("Upload CSV")
 
-# Placeholders
 model = None
 vectorizer = None
 
 if file:
-    # -------------------------------
-    # LOAD DATASET
-    # -------------------------------
     df = pd.read_csv(file, header=None, encoding='latin-1')
     df.columns = ["category", "rating", "label", "review_text"]
 
     df['label'] = df['label'].map({"OR": 0, "CG": 1})
     df.dropna(inplace=True)
 
-    st.write("### Dataset Preview")
-    st.dataframe(df.head())
-
-    # -------------------------------
-    # CLEAN TEXT
-    # -------------------------------
+    # Cleaning
     df['cleaned'] = df['review_text'].apply(clean_text)
-
-    # -------------------------------
-    # FEATURE: REVIEW LENGTH
-    # -------------------------------
     df['length'] = df['review_text'].apply(len)
 
-    # -------------------------------
-    # IQR OUTLIER REMOVAL
-    # -------------------------------
+    # Filter
+    df = df[df['length'] >= min_length]
+
+    # IQR Outlier Removal
     Q1 = df['length'].quantile(0.25)
     Q3 = df['length'].quantile(0.75)
     IQR = Q3 - Q1
-
     df = df[(df['length'] >= Q1 - 1.5*IQR) & (df['length'] <= Q3 + 1.5*IQR)]
 
-    # -------------------------------
-    # BALANCE DATASET
-    # -------------------------------
+    # Balance dataset
     df_majority = df[df.label == 0]
     df_minority = df[df.label == 1]
 
@@ -102,52 +94,49 @@ if file:
         )
         df = pd.concat([df_majority, df_minority_upsampled])
 
-    # -------------------------------
-    # FEATURE ENGINEERING
-    # -------------------------------
-    vectorizer = TfidfVectorizer(max_features=5000, ngram_range=(1,2))
+    st.write("### Dataset Preview")
+    st.dataframe(df.head())
+
+    # Feature Engineering
+    vectorizer = TfidfVectorizer(max_features=max_features, ngram_range=(1,2))
     X = vectorizer.fit_transform(df['cleaned'])
     y = df['label']
 
-    # -------------------------------
-    # SPLIT
-    # -------------------------------
+    # Split
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    # -------------------------------
-    # MODEL
-    # -------------------------------
+    # Model
     if model_choice == "Logistic Regression":
-        model = LogisticRegression(class_weight='balanced', max_iter=1000)
-
+        model = LogisticRegression(C=C_value, class_weight='balanced', max_iter=1000)
     elif model_choice == "SVM":
         model = SVC(probability=True, class_weight='balanced')
-
     else:
         model = RandomForestClassifier(class_weight='balanced')
 
-    # -------------------------------
-    # TABS
-    # -------------------------------
+    # Tabs
     tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🤖 Model", "📝 Predict"])
 
     # -------------------------------
-    # TAB 1: DASHBOARD
+    # DASHBOARD TAB
     # -------------------------------
     with tab1:
-        st.subheader("📊 Data Overview")
+        st.subheader("📊 Data Visualization")
 
-        col1, col2 = st.columns(2)
+        # Label Distribution
+        label_counts = df['label'].value_counts().reset_index()
+        label_counts.columns = ['Label', 'Count']
 
-        with col1:
-            st.write("Label Distribution")
-            st.bar_chart(df['label'].value_counts())
+        fig = px.bar(label_counts, x='Label', y='Count', color='Label', text='Count',
+                     title="Label Distribution")
+        fig.update_layout(template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
 
-        with col2:
-            st.write("Review Length Distribution")
-            st.bar_chart(df['length'])
+        # Review Length
+        fig = px.histogram(df, x="length", nbins=50, title="Review Length Distribution")
+        fig.update_layout(template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
 
         # WordCloud
         st.subheader("☁️ Word Cloud")
@@ -157,18 +146,13 @@ if file:
         plt.axis("off")
         st.pyplot(plt)
 
-        # Correlation Heatmap
-        st.subheader("📊 Correlation Heatmap")
-
-        numeric_df = df[['rating', 'length', 'label']]
-        corr = numeric_df.corr()
-
-        fig, ax = plt.subplots()
-        sns.heatmap(corr, annot=True, cmap='coolwarm')
-        st.pyplot(fig)
+        # Heatmap
+        corr = df[['rating', 'length', 'label']].corr()
+        fig = px.imshow(corr, text_auto=True, title="Correlation Heatmap")
+        st.plotly_chart(fig, use_container_width=True)
 
     # -------------------------------
-    # TAB 2: MODEL
+    # MODEL TAB
     # -------------------------------
     with tab2:
         st.subheader("🤖 Model Performance")
@@ -190,12 +174,40 @@ if file:
         c4.metric("F1 Score", f"{f1:.2f}")
 
         # Confusion Matrix
-        st.subheader("📊 Confusion Matrix")
         cm = confusion_matrix(y_test, y_pred)
-
         fig, ax = plt.subplots()
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
         st.pyplot(fig)
+
+        # Model Comparison
+        st.subheader("Model Comparison")
+
+        models = {
+            "Logistic": LogisticRegression(max_iter=1000),
+            "SVM": SVC(),
+            "RF": RandomForestClassifier()
+        }
+
+        results = {}
+        for name, m in models.items():
+            m.fit(X_train, y_train)
+            pred = m.predict(X_test)
+            results[name] = accuracy_score(y_test, pred)
+
+        comp_df = pd.DataFrame(results.items(), columns=["Model", "Accuracy"])
+        fig = px.bar(comp_df, x="Model", y="Accuracy", color="Model", text="Accuracy")
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Top Words
+        st.subheader("Top Important Words")
+
+        feature_names = vectorizer.get_feature_names_out()
+        scores = X.sum(axis=0).A1
+        top_words = sorted(zip(feature_names, scores), key=lambda x: x[1], reverse=True)[:10]
+        top_df = pd.DataFrame(top_words, columns=["Word", "Score"])
+
+        fig = px.bar(top_df, x="Score", y="Word", orientation='h')
+        st.plotly_chart(fig, use_container_width=True)
 
 # -------------------------------
 # MANUAL PREDICTOR (ALWAYS VISIBLE)
