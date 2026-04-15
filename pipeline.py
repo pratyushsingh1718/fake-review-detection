@@ -12,6 +12,7 @@ from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 from sklearn.utils import resample
+from scipy.sparse import hstack
 from wordcloud import WordCloud
 
 def clean_text(text):
@@ -40,11 +41,22 @@ file = st.file_uploader("Upload CSV")
 
 if file:
 
-    df = pd.read_csv(file, header=None, encoding='latin-1')
-    df = pd.read_csv(file, encoding='latin-1')
+    try:
+        df = pd.read_csv(file, encoding='latin-1')
+    except:
+        st.error("❌ Failed to read CSV. Upload a valid file.")
+        st.stop()
 
-    df['label'] = df['label'].map({"OR": 0, "CG": 1})
-    df.dropna(inplace=True)
+    df.columns = [c.lower().strip() for c in df.columns]
+
+    if 'review_text' not in df.columns or 'label' not in df.columns:
+        st.error("❌ Dataset must contain 'review_text' and 'label' columns")
+        st.stop()
+
+    df.dropna(subset=['review_text'], inplace=True)
+
+    if df['label'].dtype == object:
+        df['label'] = df['label'].map({"OR": 0, "CG": 1})
 
     df['cleaned'] = df['review_text'].apply(clean_text)
     df['length'] = df['review_text'].apply(len)
@@ -56,17 +68,15 @@ if file:
     IQR = Q3 - Q1
     df = df[(df['length'] >= Q1 - 1.5*IQR) & (df['length'] <= Q3 + 1.5*IQR)]
 
-    df_majority = df[df.label == 0]
-    df_minority = df[df.label == 1]
-
-    if len(df_minority) > 0:
-        df_minority_upsampled = resample(
-            df_minority,
-            replace=True,
-            n_samples=len(df_majority),
-            random_state=42
-        )
-        df = pd.concat([df_majority, df_minority_upsampled])
+    if 'word_count' not in df.columns:
+        df['word_count'] = df['review_text'].apply(lambda x: len(str(x).split()))
+    if 'exclamation_count' not in df.columns:
+        df['exclamation_count'] = df['review_text'].apply(lambda x: str(x).count('!'))
+    if 'caps_ratio' not in df.columns:
+        df['caps_ratio'] = df['review_text'].apply(lambda x: sum(1 for c in str(x) if c.isupper())/(len(str(x))+1))
+    if 'exaggeration' not in df.columns:
+        keywords = ["best ever", "life changing", "must buy", "100%", "amazing amazing"]
+        df['exaggeration'] = df['review_text'].apply(lambda x: any(k in str(x).lower() for k in keywords))
 
     st.write("### Dataset Preview")
     st.dataframe(df.head())
@@ -75,9 +85,8 @@ if file:
     text_features = vectorizer.fit_transform(df['cleaned'])
 
     extra_features = df[['word_count', 'exclamation_count', 'caps_ratio', 'exaggeration']].values
-
-    from scipy.sparse import hstack
     X = hstack([text_features, extra_features])
+
     y = df['label']
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -100,11 +109,10 @@ if file:
         label_counts = df['label'].value_counts().reset_index()
         label_counts.columns = ['Label', 'Count']
 
-        fig = px.bar(label_counts, x='Label', y='Count', color='Label', text='Count',
-                     title="Label Distribution")
+        fig = px.bar(label_counts, x='Label', y='Count', color='Label', text='Count')
         st.plotly_chart(fig, use_container_width=True)
 
-        fig = px.histogram(df, x="length", nbins=50, title="Review Length Distribution")
+        fig = px.histogram(df, x="length", nbins=50)
         st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("☁️ Word Cloud")
@@ -114,8 +122,8 @@ if file:
         plt.axis("off")
         st.pyplot(plt)
 
-        corr = df[['rating', 'length', 'label']].corr()
-        fig = px.imshow(corr, text_auto=True, title="Correlation Heatmap")
+        corr = df[['rating', 'length', 'label']].corr(numeric_only=True)
+        fig = px.imshow(corr, text_auto=True)
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
@@ -148,15 +156,25 @@ if file:
 
             if user_input.strip() == "":
                 st.warning("⚠️ Please enter a review")
-
             else:
                 cleaned = clean_text(user_input)
-                vec = vectorizer.transform([cleaned])
 
-                pred = model.predict(vec)[0]
+                text_vec = vectorizer.transform([cleaned])
+
+                wc = len(user_input.split())
+                ex = user_input.count('!')
+                caps = sum(1 for c in user_input if c.isupper())/(len(user_input)+1)
+                keywords = ["best ever", "life changing", "must buy", "100%", "amazing amazing"]
+                exaggeration = int(any(k in user_input.lower() for k in keywords))
+
+                extra = [[wc, ex, caps, exaggeration]]
+
+                final_vec = hstack([text_vec, extra])
+
+                pred = model.predict(final_vec)[0]
 
                 if hasattr(model, "predict_proba"):
-                    prob = model.predict_proba(vec)[0][1]
+                    prob = model.predict_proba(final_vec)[0][1]
                 else:
                     prob = 0.5
 
