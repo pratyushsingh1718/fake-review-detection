@@ -41,16 +41,11 @@ file = st.file_uploader("Upload CSV")
 
 if file:
 
-    try:
-        df = pd.read_csv(file, encoding='latin-1')
-    except:
-        st.error("❌ Failed to read CSV")
-        st.stop()
-
+    df = pd.read_csv(file, encoding='latin-1')
     df.columns = [c.lower().strip() for c in df.columns]
 
     if 'review_text' not in df.columns or 'label' not in df.columns:
-        st.error("❌ Dataset must contain 'review_text' and 'label'")
+        st.error("Dataset must contain 'review_text' and 'label'")
         st.stop()
 
     df.dropna(subset=['review_text'], inplace=True)
@@ -62,19 +57,10 @@ if file:
 
     st.write("Label Distribution:", df['label'].value_counts())
 
-    if df['label'].nunique() < 2:
-        st.error("❌ Dataset must contain both classes")
-        st.stop()
-
     df['cleaned'] = df['review_text'].apply(clean_text)
     df['length'] = df['review_text'].apply(len)
 
     df = df[df['length'] >= min_length]
-
-    Q1 = df['length'].quantile(0.25)
-    Q3 = df['length'].quantile(0.75)
-    IQR = Q3 - Q1
-    df = df[(df['length'] >= Q1 - 1.5*IQR) & (df['length'] <= Q3 + 1.5*IQR)]
 
     df['word_count'] = df['review_text'].apply(lambda x: len(str(x).split()))
     df['exclamation_count'] = df['review_text'].apply(lambda x: str(x).count('!'))
@@ -96,7 +82,7 @@ if file:
     vectorizer = TfidfVectorizer(max_features=max_features, ngram_range=(1,2))
     text_features = vectorizer.fit_transform(df['cleaned'])
 
-    extra_features = df[['word_count', 'exclamation_count', 'caps_ratio', 'exaggeration', 'repetition']].astype(float).values
+    extra_features = df[['word_count', 'exclamation_count', 'caps_ratio', 'exaggeration', 'repetition']].astype(float).values * [0.5, 2, 2, 3, 2]
 
     X = hstack([text_features, extra_features])
     y = df['label']
@@ -116,6 +102,34 @@ if file:
 
     tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🤖 Model", "📝 Predict"])
 
+    with tab1:
+        label_counts = df['label'].value_counts().reset_index()
+        label_counts.columns = ['Label', 'Count']
+        fig = px.bar(label_counts, x='Label', y='Count', color='Label', text='Count')
+        st.plotly_chart(fig, use_container_width=True)
+
+        fig = px.histogram(df, x="length", nbins=50)
+        st.plotly_chart(fig, use_container_width=True)
+
+    with tab2:
+        y_pred = model.predict(X_test)
+
+        acc = accuracy_score(y_test, y_pred)
+        prec = precision_score(y_test, y_pred, zero_division=0)
+        rec = recall_score(y_test, y_pred, zero_division=0)
+        f1 = f1_score(y_test, y_pred, zero_division=0)
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Accuracy", f"{acc:.2f}")
+        c2.metric("Precision", f"{prec:.2f}")
+        c3.metric("Recall", f"{rec:.2f}")
+        c4.metric("F1 Score", f"{f1:.2f}")
+
+        cm = confusion_matrix(y_test, y_pred)
+        fig, ax = plt.subplots()
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+        st.pyplot(fig)
+
     with tab3:
         st.subheader("📝 Test Your Review")
 
@@ -123,7 +137,7 @@ if file:
 
         if st.button("🔍 Analyze Review"):
             if user_input.strip() == "":
-                st.warning("⚠️ Please enter a review")
+                st.warning("Please enter a review")
             else:
                 cleaned = clean_text(user_input)
                 text_vec = vectorizer.transform([cleaned])
@@ -139,10 +153,7 @@ if file:
 
                 pred = model.predict(final_vec)[0]
 
-                if hasattr(model, "predict_proba"):
-                    prob = model.predict_proba(final_vec)[0][1]
-                else:
-                    prob = 0.5
+                prob = model.predict_proba(final_vec)[0][1] if hasattr(model, "predict_proba") else 0.5
 
                 st.progress(prob)
                 st.write(f"Fake Probability: {prob*100:.2f}%")
