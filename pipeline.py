@@ -72,7 +72,12 @@ if file:
     st.dataframe(df.head())
 
     vectorizer = TfidfVectorizer(max_features=max_features, ngram_range=(1,2))
-    X = vectorizer.fit_transform(df['cleaned'])
+    text_features = vectorizer.fit_transform(df['cleaned'])
+
+    extra_features = df[['word_count', 'exclamation_count', 'caps_ratio', 'exaggeration']].values
+
+    from scipy.sparse import hstack
+    X = hstack([text_features, extra_features])
     y = df['label']
 
     X_train, X_test, y_train, y_test = train_test_split(
