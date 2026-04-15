@@ -44,7 +44,7 @@ if file:
     try:
         df = pd.read_csv(file, encoding='latin-1')
     except:
-        st.error("❌ Failed to read CSV. Upload a valid file.")
+        st.error("❌ Failed to read CSV")
         st.stop()
 
     df.columns = [c.lower().strip() for c in df.columns]
@@ -55,8 +55,16 @@ if file:
 
     df.dropna(subset=['review_text'], inplace=True)
 
-    if df['label'].dtype == object:
-        df['label'] = df['label'].map({"OR": 0, "CG": 1})
+    df['label'] = df['label'].astype(str).str.strip().str.upper()
+    df['label'] = df['label'].map({"OR": 0, "CG": 1, "0": 0, "1": 1})
+    df.dropna(subset=['label'], inplace=True)
+    df['label'] = df['label'].astype(int)
+
+    st.write("Label Distribution:", df['label'].value_counts())
+
+    if df['label'].nunique() < 2:
+        st.error("❌ Dataset must contain both classes")
+        st.stop()
 
     df['cleaned'] = df['review_text'].apply(clean_text)
     df['length'] = df['review_text'].apply(len)
@@ -80,8 +88,13 @@ if file:
 
     df['exaggeration'] = df['exaggeration'].astype(float)
 
-    st.write("### Dataset Preview")
-    st.dataframe(df.head())
+    majority = df[df.label == 0]
+    minority = df[df.label == 1]
+
+    minority_upsampled = resample(minority, replace=True, n_samples=len(majority), random_state=42)
+    df = pd.concat([majority, minority_upsampled])
+
+    st.write("Balanced Distribution:", df['label'].value_counts())
 
     vectorizer = TfidfVectorizer(max_features=max_features, ngram_range=(1,2))
     text_features = vectorizer.fit_transform(df['cleaned'])
@@ -92,10 +105,7 @@ if file:
     y = df['label']
 
     X_train, X_test, y_train, y_test = train_test_split(
-    X, y,
-    test_size=0.2,
-    random_state=42,
-    stratify=y
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
     if model_choice == "Logistic Regression":
@@ -118,14 +128,13 @@ if file:
         fig = px.histogram(df, x="length", nbins=50)
         st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader("☁️ Word Cloud")
         text_data = " ".join(df['cleaned'])
         wordcloud = WordCloud(width=800, height=400).generate(text_data)
         plt.imshow(wordcloud)
         plt.axis("off")
         st.pyplot(plt)
 
-        corr = df[['rating', 'length', 'label']].corr(numeric_only=True)
+        corr = df[['length', 'label']].corr(numeric_only=True)
         fig = px.imshow(corr, text_auto=True)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -133,9 +142,13 @@ if file:
         y_pred = model.predict(X_test)
 
         acc = accuracy_score(y_test, y_pred)
-        prec = precision_score(y_test, y_pred, zero_division=0)
-        rec = recall_score(y_test, y_pred, zero_division=0)
-        f1 = f1_score(y_test, y_pred, zero_division=0)
+
+        if len(set(y_test)) < 2:
+            prec, rec, f1 = 0, 0, 0
+        else:
+            prec = precision_score(y_test, y_pred, zero_division=0)
+            rec = recall_score(y_test, y_pred, zero_division=0)
+            f1 = f1_score(y_test, y_pred, zero_division=0)
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Accuracy", f"{acc:.2f}")
@@ -163,7 +176,6 @@ if file:
                 wc = float(len(user_input.split()))
                 ex = float(user_input.count('!'))
                 caps = float(sum(1 for c in user_input if c.isupper())/(len(user_input)+1))
-
                 keywords = ["best ever", "life changing", "must buy", "100%", "amazing amazing"]
                 exaggeration = float(any(k in user_input.lower() for k in keywords))
 
@@ -186,4 +198,4 @@ if file:
                     st.success("✅ Genuine Review")
 
 else:
-    st.info("⬆️ Please upload a dataset to begin.")
+    st.info("⬆️ Upload dataset to start")
