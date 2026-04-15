@@ -41,7 +41,7 @@ file = st.file_uploader("Upload CSV")
 if file:
 
     df = pd.read_csv(file, header=None, encoding='latin-1')
-    df.columns = ["category", "rating", "label", "review_text"]
+    df = pd.read_csv(file, encoding='latin-1')
 
     df['label'] = df['label'].map({"OR": 0, "CG": 1})
     df.dropna(inplace=True)
